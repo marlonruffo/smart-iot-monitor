@@ -33,3 +33,4 @@ def detect_anomaly(attributes, models):
             if models[attr_name].predict(X)[0] == -1:
                 anomalies[attr_name] = value
     return anomalies if anomalies else None
+# 

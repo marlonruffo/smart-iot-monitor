@@ -60,3 +60,4 @@ function SensorDetails({ identifier }) {
 }
 
 export default SensorDetails;
+//
