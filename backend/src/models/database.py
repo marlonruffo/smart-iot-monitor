@@ -6,42 +6,6 @@ def init_db():
     conn = sqlite3.connect('iot.db')
     c = conn.cursor()
     
-    c.execute("PRAGMA table_info(readings)")
-    columns = [info[1] for info in c.fetchall()]
-    
-    if 'sensor_id' in columns:
-        c.execute("ALTER TABLE readings RENAME TO readings_old")
-        c.execute('''CREATE TABLE readings
-                     (id INTEGER PRIMARY KEY,
-                      identifier TEXT,
-                      attributes TEXT,
-                      timestamp TEXT,
-                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
-        c.execute("INSERT INTO readings (id, identifier, attributes, timestamp) "
-                  "SELECT r.id, s.identifier, r.attributes, r.timestamp "
-                  "FROM readings_old r JOIN sensors s ON r.sensor_id = s.id")
-        c.execute("DROP TABLE readings_old")
-    elif 'temperature' in columns:
-        c.execute("ALTER TABLE readings RENAME TO readings_old")
-        c.execute('''CREATE TABLE readings
-                     (id INTEGER PRIMARY KEY,
-                      identifier TEXT,
-                      attributes TEXT,
-                      timestamp TEXT,
-                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
-        c.execute("INSERT INTO readings (id, identifier, attributes, timestamp) "
-                  "SELECT id, (SELECT identifier FROM sensors WHERE id = sensor_id), "
-                  "json_object('temperature', temperature), timestamp "
-                  "FROM readings_old")
-        c.execute("DROP TABLE readings_old")
-    elif not columns:
-        c.execute('''CREATE TABLE readings
-                     (id INTEGER PRIMARY KEY,
-                      identifier TEXT,
-                      attributes TEXT,
-                      timestamp TEXT,
-                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS sensors
                  (id INTEGER PRIMARY KEY,
                   identifier TEXT NOT NULL UNIQUE,
@@ -51,7 +15,6 @@ def init_db():
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL,
                   type TEXT NOT NULL,
-                  unit TEXT NOT NULL,
                   frequency INTEGER NOT NULL,
                   address TEXT,
                   last_reading TEXT,
@@ -61,7 +24,16 @@ def init_db():
                   manufacturer TEXT,
                   status_message TEXT,
                   battery_level REAL,
-                  connection_type TEXT)''')
+                  connection_type TEXT,
+                  attributes_metadata TEXT NOT NULL)''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS readings
+                 (id INTEGER PRIMARY KEY,
+                  identifier TEXT,
+                  attributes TEXT,
+                  timestamp TEXT,
+                  FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
+    
     conn.commit()
     conn.close()
 
@@ -70,11 +42,12 @@ def insert_sensor(sensor_data):
     c = conn.cursor()
     current_time = datetime.now().isoformat()
     address_json = json.dumps(sensor_data['address'])
+    attributes_metadata_json = json.dumps(sensor_data.get('attributes_metadata', []))
     try:
         c.execute('''INSERT INTO sensors (
-                        identifier, name, active, access_token, created_at, updated_at, type, unit, frequency,
+                        identifier, name, active, access_token, created_at, updated_at, type, frequency,
                         address, last_reading, description, location_coordinates, device_model,
-                        manufacturer, status_message, battery_level, connection_type
+                        manufacturer, status_message, battery_level, connection_type, attributes_metadata
                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                   (
                       sensor_data['identifier'],
@@ -84,7 +57,6 @@ def insert_sensor(sensor_data):
                       current_time,
                       current_time,
                       sensor_data['type'],
-                      sensor_data['unit'],
                       sensor_data['frequency'],
                       address_json,
                       None,
@@ -94,7 +66,8 @@ def insert_sensor(sensor_data):
                       sensor_data.get('manufacturer'),
                       sensor_data.get('status_message'),
                       sensor_data.get('battery_level'),
-                      sensor_data.get('connection_type')
+                      sensor_data.get('connection_type'),
+                      attributes_metadata_json
                   ))
         sensor_id = c.lastrowid
         conn.commit()
@@ -120,25 +93,31 @@ def get_sensor(identifier):
             'created_at': sensor[5],
             'updated_at': sensor[6],
             'type': sensor[7],
-            'unit': sensor[8],
-            'frequency': sensor[9],
-            'address': json.loads(sensor[10]),
-            'last_reading': sensor[11],
-            'description': sensor[12],
-            'location_coordinates': json.loads(sensor[13]) if sensor[13] else {},
-            'device_model': sensor[14],
-            'manufacturer': sensor[15],
-            'status_message': sensor[16],
-            'battery_level': sensor[17],
-            'connection_type': sensor[18]
+            'frequency': sensor[8],
+            'address': json.loads(sensor[9]) if sensor[9] else None,
+            'last_reading': sensor[10],
+            'description': sensor[11],
+            'location_coordinates': json.loads(sensor[12]) if sensor[12] else {},
+            'device_model': sensor[13],
+            'manufacturer': sensor[14],
+            'status_message': sensor[15],
+            'battery_level': sensor[16],
+            'connection_type': sensor[17],
+            'attributes_metadata': json.loads(sensor[18]) if sensor[18] else []
         }
     return None
 
 def get_sensors():
     conn = sqlite3.connect('iot.db')
     c = conn.cursor()
-    c.execute("SELECT identifier, name FROM sensors")
-    sensors = [{'identifier': row[0], 'name': row[1]} for row in c.fetchall()]
+    c.execute("SELECT identifier, name, attributes_metadata FROM sensors")
+    sensors = [
+        {
+            'identifier': row[0],
+            'name': row[1],
+            'attributes_metadata': json.loads(row[2]) if row[2] else []
+        } for row in c.fetchall()
+    ]
     conn.close()
     return sensors
 
@@ -150,8 +129,10 @@ def insert_reading(identifier, attributes):
     if not sensor or not sensor['active']:
         conn.close()
         return False
+    
     attributes_json = json.dumps(attributes)
     current_time = datetime.now().isoformat()
+    
     c.execute("INSERT INTO readings (identifier, attributes, timestamp) VALUES (?, ?, ?)",
               (identifier, attributes_json, current_time))
     
@@ -175,7 +156,7 @@ def get_readings(identifier=None):
         try:
             attributes = json.loads(r[2])
         except (TypeError, json.JSONDecodeError):
-            attributes = {'temperature': float(r[2])}
+            attributes = {}
         processed_readings.append((r[0], r[1], attributes, r[3]))
     return processed_readings
 

@@ -12,7 +12,7 @@ function ReadingForm() {
   const [formData, setFormData] = useState({
     identifier: '',
     access_token: '',
-    attributes: { temperature: '', humidity: '' },
+    attributes: {},
   });
   const [sensors, setSensors] = useState([]);
   const [readings, setReadings] = useState([]);
@@ -47,10 +47,12 @@ function ReadingForm() {
         const response = await axios.get(`http://localhost:5000/readings/${formData.identifier}`, {
           headers: { 'Content-Type': 'application/json' },
         });
-        setReadings(response.data || []);
+        console.log('Fetched readings:', response.data); // Debug log
+        setReadings(Array.isArray(response.data) ? response.data : []);
       } catch (err) {
         console.error('Error fetching readings:', err);
         setError(`Erro ao carregar leituras para o sensor ${formData.identifier}.`);
+        setReadings([]);
       }
     };
     fetchReadings();
@@ -60,9 +62,17 @@ function ReadingForm() {
     const { name, value } = e.target;
     if (name.includes('attributes.')) {
       const field = name.split('.')[1];
+      const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
+      const attrMetadata = selectedSensor?.attributes_metadata.find(attr => attr.name === field);
+      let parsedValue = value;
+      if (attrMetadata?.type === 'number') {
+        parsedValue = value ? parseFloat(value) : '';
+      } else if (attrMetadata?.type === 'boolean') {
+        parsedValue = value === 'true';
+      }
       setFormData({
         ...formData,
-        attributes: { ...formData.attributes, [field]: value },
+        attributes: { ...formData.attributes, [field]: parsedValue },
       });
     } else {
       setFormData({ ...formData, [name]: value });
@@ -70,29 +80,33 @@ function ReadingForm() {
   };
 
   const handleSelectChange = (value) => {
-    setFormData({ ...formData, identifier: value });
+    const selectedSensor = sensors.find(s => s.identifier === value);
+    const newAttributes = selectedSensor?.attributes_metadata.reduce((acc, attr) => ({
+      ...acc,
+      [attr.name]: attr.type === 'boolean' ? false : ''
+    }), {}) || {};
+    setFormData({
+      ...formData,
+      identifier: value,
+      attributes: newAttributes,
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const temp = parseFloat(formData.attributes.temperature);
-    const hum = parseFloat(formData.attributes.humidity);
-    if (temp && (temp < -200 || temp > 200)) {
-      setError('Temperatura deve estar entre -200°C e 200°C');
-      return;
-    }
-    if (hum && (hum < -10 || hum > 200)) {
-      setError('Umidade deve estar entre -10% e 200%');
-      return;
+    const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
+    const attributes = {};
+    for (const attr of selectedSensor?.attributes_metadata || []) {
+      const value = formData.attributes[attr.name];
+      if (value !== '' && value !== null && value !== undefined) {
+        attributes[attr.name] = value;
+      }
     }
 
     try {
       const response = await axios.post('http://localhost:5000/data', {
         identifier: formData.identifier,
-        attributes: {
-          temperature: temp || null,
-          humidity: hum || null,
-        },
+        attributes,
       }, {
         headers: {
           'Content-Type': 'application/json',
@@ -103,13 +117,16 @@ function ReadingForm() {
       setError('');
       setFormData({
         ...formData,
-        attributes: { temperature: '', humidity: '' },
+        attributes: selectedSensor?.attributes_metadata.reduce((acc, attr) => ({
+          ...acc,
+          [attr.name]: attr.type === 'boolean' ? false : ''
+        }), {}) || {},
       });
-      // Refresh readings after submission
       const readingsResponse = await axios.get(`http://localhost:5000/readings/${formData.identifier}`, {
         headers: { 'Content-Type': 'application/json' },
       });
-      setReadings(readingsResponse.data || []);
+      console.log('Refreshed readings:', readingsResponse.data); // Debug log
+      setReadings(Array.isArray(readingsResponse.data) ? readingsResponse.data : []);
     } catch (err) {
       console.error('Error submitting reading:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Erro ao conectar com o servidor';
@@ -117,6 +134,9 @@ function ReadingForm() {
       setSuccess('');
     }
   };
+
+  const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
+  const attributeKeys = selectedSensor?.attributes_metadata.map(attr => attr.name) || [];
 
   return (
     <Card className="card">
@@ -162,29 +182,36 @@ function ReadingForm() {
               required
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="temperature">Temperatura (°C, opcional)</Label>
-            <Input
-              id="temperature"
-              name="attributes.temperature"
-              type="number"
-              step="0.1"
-              value={formData.attributes.temperature}
-              onChange={handleChange}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="humidity">Umidade (%, opcional)</Label>
-            <Input
-              id="humidity"
-              name="attributes.humidity"
-              type="number"
-              step="0.1"
-              value={formData.attributes.humidity}
-              onChange={handleChange}
-            />
-          </div>
-          <Button type="submit" disabled={sensors.length === 0}>Enviar Leitura</Button>
+          {selectedSensor?.attributes_metadata.map(attr => (
+            <div key={attr.name} className="space-y-2">
+              <Label htmlFor={attr.name}>{attr.name} ({attr.unit || attr.type})</Label>
+              {attr.type === 'boolean' ? (
+                <Select
+                  name={`attributes.${attr.name}`}
+                  value={String(formData.attributes[attr.name])}
+                  onValueChange={(value) => handleChange({ target: { name: `attributes.${attr.name}`, value } })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">True</SelectItem>
+                    <SelectItem value="false">False</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id={attr.name}
+                  name={`attributes.${attr.name}`}
+                  type={attr.type === 'number' ? 'number' : 'text'}
+                  step={attr.type === 'number' ? '0.1' : undefined}
+                  value={formData.attributes[attr.name] || ''}
+                  onChange={handleChange}
+                />
+              )}
+            </div>
+          ))}
+          <Button type="submit" disabled={sensors.length === 0 || !formData.identifier}>Enviar Leitura</Button>
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
@@ -207,8 +234,9 @@ function ReadingForm() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>ID</TableHead>
-                    <TableHead>Temperatura (°C)</TableHead>
-                    <TableHead>Umidade (%)</TableHead>
+                    {attributeKeys.map(key => (
+                      <TableHead key={key}>{key}</TableHead>
+                    ))}
                     <TableHead>Data/Hora</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -216,8 +244,9 @@ function ReadingForm() {
                   {readings.map((reading) => (
                     <TableRow key={reading.id}>
                       <TableCell>{reading.id}</TableCell>
-                      <TableCell>{reading.attributes.temperature ?? 'N/A'}</TableCell>
-                      <TableCell>{reading.attributes.humidity ?? 'N/A'}</TableCell>
+                      {attributeKeys.map(key => (
+                        <TableCell key={key}>{reading.attributes[key] ?? 'N/A'}</TableCell>
+                      ))}
                       <TableCell>{new Date(reading.timestamp).toLocaleString('pt-BR')}</TableCell>
                     </TableRow>
                   ))}

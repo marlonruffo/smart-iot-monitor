@@ -3,21 +3,22 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-function SensorForm({ onSensorCreated }) {
+function SensorForm() {
   const [formData, setFormData] = useState({
     identifier: '',
     name: '',
     active: true,
     access_token: '',
     type: '',
-    unit: '',
     frequency: '',
-    address: { cep: '', city: '', state: '', country: '', street: '', number: '', complement: '', reference: '' },
+    address: { cep: '', city: '', state: '', country: '' },
+    attributes_metadata: [],
   });
+  const [attributeInput, setAttributeInput] = useState({ name: '', type: 'number', unit: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -34,24 +35,64 @@ function SensorForm({ onSensorCreated }) {
     }
   };
 
-  const handleSelectChange = (value) => {
-    setFormData({ ...formData, active: value === 'true' });
+  const handleAttributeChange = (e) => {
+    const { name, value } = e.target;
+    setAttributeInput({ ...attributeInput, [name]: value });
+  };
+
+  const addAttribute = () => {
+    if (!attributeInput.name || !attributeInput.type) {
+      setError('Nome e tipo do atributo são obrigatórios');
+      return;
+    }
+    setFormData({
+      ...formData,
+      attributes_metadata: [
+        ...formData.attributes_metadata,
+        {
+          name: attributeInput.name,
+          type: attributeInput.type,
+          unit: attributeInput.unit || undefined,
+        },
+      ],
+    });
+    setAttributeInput({ name: '', type: 'number', unit: '' });
+    setError('');
+  };
+
+  const removeAttribute = (name) => {
+    setFormData({
+      ...formData,
+      attributes_metadata: formData.attributes_metadata.filter(attr => attr.name !== name),
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5000/sensors', {
+      const response = await axios.post('http://localhost:5000/sensors', {
         ...formData,
-        active: formData.active,
-        frequency: parseInt(formData.frequency) || 5,
+        active: formData.active === 'true' || formData.active === true,
+        frequency: parseInt(formData.frequency),
+      }, {
+        headers: { 'Content-Type': 'application/json' },
       });
-      setSuccess(`Sensor ${formData.identifier} criado`);
+      setSuccess('Sensor criado com sucesso!');
       setError('');
-      onSensorCreated(formData.identifier);
+      setFormData({
+        identifier: '',
+        name: '',
+        active: true,
+        access_token: '',
+        type: '',
+        frequency: '',
+        address: { cep: '', city: '', state: '', country: '' },
+        attributes_metadata: [],
+      });
     } catch (err) {
-      console.error('Error response:', err.response);
-      setError(err.response?.data?.error || `Erro ao criar sensor: ${err.message}`);
+      console.error('Error creating sensor:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Erro ao criar sensor';
+      setError(`Erro: ${errorMessage}`);
       setSuccess('');
     }
   };
@@ -59,12 +100,12 @@ function SensorForm({ onSensorCreated }) {
   return (
     <Card className="card">
       <CardHeader>
-        <CardTitle>Cadastrar Sensor</CardTitle>
+        <CardTitle>Criar Sensor</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="form">
+        <form onSubmit={handleSubmit} className="form space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="identifier">Identifier</Label>
+            <Label htmlFor="identifier">Identificador</Label>
             <Input
               id="identifier"
               name="identifier"
@@ -85,9 +126,13 @@ function SensorForm({ onSensorCreated }) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="active">Ativo</Label>
-            <Select name="active" value={formData.active.toString()} onValueChange={handleSelectChange}>
+            <Select
+              name="active"
+              value={String(formData.active)}
+              onValueChange={(value) => setFormData({ ...formData, active: value === 'true' })}
+            >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="true">Sim</SelectItem>
@@ -116,16 +161,6 @@ function SensorForm({ onSensorCreated }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="unit">Unidade</Label>
-            <Input
-              id="unit"
-              name="unit"
-              value={formData.unit}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div className="space-y-2">
             <Label htmlFor="frequency">Frequência (segundos)</Label>
             <Input
               id="frequency"
@@ -137,44 +172,73 @@ function SensorForm({ onSensorCreated }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cep">CEP</Label>
+            <Label>Endereço</Label>
             <Input
-              id="cep"
               name="address.cep"
+              placeholder="CEP"
               value={formData.address.cep}
               onChange={handleChange}
-              required
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="city">Cidade</Label>
             <Input
-              id="city"
               name="address.city"
+              placeholder="Cidade"
               value={formData.address.city}
               onChange={handleChange}
-              required
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="state">Estado</Label>
             <Input
-              id="state"
               name="address.state"
+              placeholder="Estado"
               value={formData.address.state}
               onChange={handleChange}
-              required
+            />
+            <Input
+              name="address.country"
+              placeholder="País"
+              value={formData.address.country}
+              onChange={handleChange}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="country">País</Label>
-            <Input
-              id="country"
-              name="address.country"
-              value={formData.address.country}
-              onChange={handleChange}
-              required
-            />
+            <Label>Atributos</Label>
+            <div className="flex space-x-2">
+              <Input
+                name="name"
+                placeholder="Nome do atributo"
+                value={attributeInput.name}
+                onChange={handleAttributeChange}
+              />
+              <Select
+                name="type"
+                value={attributeInput.type}
+                onValueChange={(value) => setAttributeInput({ ...attributeInput, type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="number">Número</SelectItem>
+                  <SelectItem value="string">Texto</SelectItem>
+                  <SelectItem value="boolean">Booleano</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                name="unit"
+                placeholder="Unidade (opcional)"
+                value={attributeInput.unit}
+                onChange={handleAttributeChange}
+              />
+              <Button type="button" onClick={addAttribute}>Adicionar</Button>
+            </div>
+            {formData.attributes_metadata.length > 0 && (
+              <ul className="mt-2">
+                {formData.attributes_metadata.map(attr => (
+                  <li key={attr.name} className="flex justify-between items-center">
+                    <span>{attr.name} ({attr.type}{attr.unit ? `, ${attr.unit}` : ''})</span>
+                    <Button variant="destructive" size="sm" onClick={() => removeAttribute(attr.name)}>Remover</Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <Button type="submit">Criar Sensor</Button>
           {error && (

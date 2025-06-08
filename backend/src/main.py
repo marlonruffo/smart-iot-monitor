@@ -5,7 +5,7 @@ from models.database import insert_reading, get_readings, insert_sensor, get_sen
 from ml.ml import detect_anomaly, train_model
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
+CORS(app, resources={r"/*": {"origins": "http://localhost:*"}})
 socketio = SocketIO(app)
 
 model = train_model()
@@ -28,6 +28,12 @@ def receive_data():
     if token != sensor['access_token']:
         return jsonify({'error': 'Invalid access token'}), 401
 
+    metadata = sensor.get('attributes_metadata', [])
+    expected_attrs = {attr['name'] for attr in metadata}
+    provided_attrs = set(attributes.keys())
+    if metadata and not provided_attrs.issubset(expected_attrs):
+        return jsonify({'error': f'Invalid attributes provided. Expected: {expected_attrs}'}), 400
+
     if not insert_reading(identifier, attributes):
         return jsonify({'error': 'Failed to insert reading'}), 500
 
@@ -40,9 +46,17 @@ def receive_data():
 @app.route('/sensors', methods=['POST'])
 def create_sensor():
     data = request.json
-    required_fields = ['identifier', 'name', 'active', 'access_token', 'type', 'unit', 'frequency', 'address']
+    required_fields = ['identifier', 'name', 'active', 'access_token', 'type', 'frequency', 'address', 'attributes_metadata']
     if not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
+    
+    if not isinstance(data['attributes_metadata'], list):
+        return jsonify({'error': 'attributes_metadata must be a list'}), 400
+    for attr in data['attributes_metadata']:
+        if not all(key in attr for key in ['name', 'type']):
+            return jsonify({'error': 'Each attribute must have name and type'}), 400
+        if attr['type'] not in ['number', 'string', 'boolean']:
+            return jsonify({'error': f"Invalid type {attr['type']}. Must be number, string, or boolean"}), 400
     
     try:
         sensor_id = insert_sensor(data)
@@ -76,7 +90,7 @@ def get_sensor_data(identifier):
     sensor['readings'] = [
         {
             'id': reading[0],
-            'sensor_id': reading[1],
+            'identifier': reading[1],
             'attributes': reading[2],
             'timestamp': reading[3]
         } for reading in readings
@@ -84,15 +98,13 @@ def get_sensor_data(identifier):
     
     return jsonify(sensor)
 
-
 @app.route('/readings/<identifier>', methods=['GET'])
 def get_readings_for_identifier(identifier):
     try:
         readings = get_readings_by_identifier(identifier)
-        if not readings:
-            return jsonify({'message': 'No readings found for this identifier'}), 200
         return jsonify(readings), 200
     except Exception as e:
         return jsonify({'error': f'Failed to fetch readings: {str(e)}'}), 500
+
 if __name__ == '__main__':
     socketio.run(app, debug=True)
