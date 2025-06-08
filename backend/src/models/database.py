@@ -8,24 +8,39 @@ def init_db():
     
     c.execute("PRAGMA table_info(readings)")
     columns = [info[1] for info in c.fetchall()]
-    if 'temperature' in columns:
-        
+    
+    if 'sensor_id' in columns:
         c.execute("ALTER TABLE readings RENAME TO readings_old")
-       
         c.execute('''CREATE TABLE readings
-                     (id INTEGER PRIMARY KEY, sensor_id INTEGER, attributes TEXT, timestamp TEXT,
-                      FOREIGN KEY(sensor_id) REFERENCES sensors(id))''')
-        
-        c.execute("INSERT INTO readings (id, sensor_id, attributes, timestamp) "
-                  "SELECT id, sensor_id, json_object('temperature', temperature), timestamp "
+                     (id INTEGER PRIMARY KEY,
+                      identifier TEXT,
+                      attributes TEXT,
+                      timestamp TEXT,
+                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
+        c.execute("INSERT INTO readings (id, identifier, attributes, timestamp) "
+                  "SELECT r.id, s.identifier, r.attributes, r.timestamp "
+                  "FROM readings_old r JOIN sensors s ON r.sensor_id = s.id")
+        c.execute("DROP TABLE readings_old")
+    elif 'temperature' in columns:
+        c.execute("ALTER TABLE readings RENAME TO readings_old")
+        c.execute('''CREATE TABLE readings
+                     (id INTEGER PRIMARY KEY,
+                      identifier TEXT,
+                      attributes TEXT,
+                      timestamp TEXT,
+                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
+        c.execute("INSERT INTO readings (id, identifier, attributes, timestamp) "
+                  "SELECT id, (SELECT identifier FROM sensors WHERE id = sensor_id), "
+                  "json_object('temperature', temperature), timestamp "
                   "FROM readings_old")
         c.execute("DROP TABLE readings_old")
     elif not columns:
-        
         c.execute('''CREATE TABLE readings
-                     (id INTEGER PRIMARY KEY, sensor_id INTEGER, attributes TEXT, timestamp TEXT,
-                      FOREIGN KEY(sensor_id) REFERENCES sensors(id))''')
-    
+                     (id INTEGER PRIMARY KEY,
+                      identifier TEXT,
+                      attributes TEXT,
+                      timestamp TEXT,
+                      FOREIGN KEY(identifier) REFERENCES sensors(identifier))''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS sensors
                  (id INTEGER PRIMARY KEY,
@@ -38,7 +53,7 @@ def init_db():
                   type TEXT NOT NULL,
                   unit TEXT NOT NULL,
                   frequency INTEGER NOT NULL,
-                  address TEXT ,
+                  address TEXT,
                   last_reading TEXT,
                   description TEXT,
                   location_coordinates TEXT,
@@ -119,6 +134,14 @@ def get_sensor(identifier):
         }
     return None
 
+def get_sensors():
+    conn = sqlite3.connect('iot.db')
+    c = conn.cursor()
+    c.execute("SELECT identifier, name FROM sensors")
+    sensors = [{'identifier': row[0], 'name': row[1]} for row in c.fetchall()]
+    conn.close()
+    return sensors
+
 def insert_reading(identifier, attributes):
     conn = sqlite3.connect('iot.db')
     c = conn.cursor()
@@ -129,8 +152,8 @@ def insert_reading(identifier, attributes):
         return False
     attributes_json = json.dumps(attributes)
     current_time = datetime.now().isoformat()
-    c.execute("INSERT INTO readings (sensor_id, attributes, timestamp) VALUES (?, ?, ?)",
-              (sensor['id'], attributes_json, current_time))
+    c.execute("INSERT INTO readings (identifier, attributes, timestamp) VALUES (?, ?, ?)",
+              (identifier, attributes_json, current_time))
     
     c.execute("UPDATE sensors SET last_reading = ?, updated_at = ? WHERE identifier = ?",
               (current_time, current_time, identifier))
@@ -142,7 +165,7 @@ def get_readings(identifier=None):
     conn = sqlite3.connect('iot.db')
     c = conn.cursor()
     if identifier:
-        c.execute("SELECT r.* FROM readings r JOIN sensors s ON r.sensor_id = s.id WHERE s.identifier = ?", (identifier,))
+        c.execute("SELECT * FROM readings WHERE identifier = ?", (identifier,))
     else:
         c.execute("SELECT * FROM readings")
     readings = c.fetchall()
@@ -155,5 +178,20 @@ def get_readings(identifier=None):
             attributes = {'temperature': float(r[2])}
         processed_readings.append((r[0], r[1], attributes, r[3]))
     return processed_readings
+
+def get_readings_by_identifier(identifier):
+    conn = sqlite3.connect('iot.db')
+    c = conn.cursor()
+    c.execute("SELECT id, identifier, attributes, timestamp FROM readings WHERE identifier = ?", (identifier,))
+    readings = c.fetchall()
+    conn.close()
+    return [
+        {
+            'id': r[0],
+            'identifier': r[1],
+            'attributes': json.loads(r[2]) if r[2] else {},
+            'timestamp': r[3]
+        } for r in readings
+    ]
 
 init_db()

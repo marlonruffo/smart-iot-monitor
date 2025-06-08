@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from flask_socketio import SocketIO
-from models.database import insert_reading, get_readings, insert_sensor, get_sensor
+from models.database import insert_reading, get_readings, insert_sensor, get_sensor, get_sensors, get_readings_by_identifier
 from ml.ml import detect_anomaly, train_model
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
 socketio = SocketIO(app)
 
 model = train_model()
@@ -50,6 +52,14 @@ def create_sensor():
     except Exception as e:
         return jsonify({'error': f'Failed to create sensor: {str(e)}'}), 500
 
+@app.route('/sensors', methods=['GET'])
+def get_all_sensors():
+    try:
+        sensors = get_sensors()
+        return jsonify(sensors), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch sensors: {str(e)}'}), 500
+
 @app.route('/train', methods=['POST'])
 def retrain_model():
     global model
@@ -74,5 +84,15 @@ def get_sensor_data(identifier):
     
     return jsonify(sensor)
 
+
+@app.route('/readings/<identifier>', methods=['GET'])
+def get_readings_for_identifier(identifier):
+    try:
+        readings = get_readings_by_identifier(identifier)
+        if not readings:
+            return jsonify({'message': 'No readings found for this identifier'}), 200
+        return jsonify(readings), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch readings: {str(e)}'}), 500
 if __name__ == '__main__':
     socketio.run(app, debug=True)
