@@ -1,6 +1,8 @@
 from sklearn.ensemble import IsolationForest
 import numpy as np
 from models.database import get_readings
+def process_data():
+    return {}
 
 def train_model():
     readings = get_readings()

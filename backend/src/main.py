@@ -1,111 +1,69 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 from flask_socketio import SocketIO
-from models.database import insert_reading, get_readings, insert_sensor, get_sensor, get_sensors, get_readings_by_identifier
-from ml.ml import detect_anomaly, train_model
+from flask_cors import CORS
+from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings
+import json
+import datetime
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:*"}})
-socketio = SocketIO(app)
+CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-model = train_model()
-
-@app.route('/data', methods=['POST'])
-def receive_data():
-    data = request.json
-    identifier = data.get('identifier')
-    attributes = data.get('attributes')
-    token = request.headers.get('Authorization')
-
-    if not identifier or not attributes:
-        return jsonify({'error': 'Missing identifier or attributes'}), 400
-
-    sensor = get_sensor(identifier)
-    if not sensor:
-        return jsonify({'error': 'Sensor not found'}), 404
-    if not sensor['active']:
-        return jsonify({'error': 'Sensor is inactive'}), 403
-    if token != sensor['access_token']:
-        return jsonify({'error': 'Invalid access token'}), 401
-
-    metadata = sensor.get('attributes_metadata', [])
-    expected_attrs = {attr['name'] for attr in metadata}
-    provided_attrs = set(attributes.keys())
-    if metadata and not provided_attrs.issubset(expected_attrs):
-        return jsonify({'error': f'Invalid attributes provided. Expected: {expected_attrs}'}), 400
-
-    if not insert_reading(identifier, attributes):
-        return jsonify({'error': 'Failed to insert reading'}), 500
-
-    anomalies = detect_anomaly(attributes, model)
-    if anomalies:
-        socketio.emit('anomaly', {'identifier': identifier, 'anomalies': anomalies})
-    
-    return jsonify({'status': 'success'})
+init_db()
 
 @app.route('/sensors', methods=['POST'])
 def create_sensor():
-    data = request.json
-    required_fields = ['identifier', 'name', 'active', 'access_token', 'type', 'frequency', 'address', 'attributes_metadata']
-    if not all(field in data for field in required_fields):
-        return jsonify({'error': 'Missing required fields'}), 400
-    
-    if not isinstance(data['attributes_metadata'], list):
-        return jsonify({'error': 'attributes_metadata must be a list'}), 400
-    for attr in data['attributes_metadata']:
-        if not all(key in attr for key in ['name', 'type']):
-            return jsonify({'error': 'Each attribute must have name and type'}), 400
-        if attr['type'] not in ['number', 'string', 'boolean']:
-            return jsonify({'error': f"Invalid type {attr['type']}. Must be number, string, or boolean"}), 400
-    
+    data = request.get_json()
     try:
-        sensor_id = insert_sensor(data)
-        return jsonify({'status': 'success', 'sensor_id': sensor_id, 'identifier': data['identifier']}), 201
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        sensor = {
+            'identifier': data['identifier'],
+            'name': data['name'],
+            'active': data['active'],
+            'access_token': data['access_token'],
+            'attributes_metadata': data['attributes_metadata'],
+            'description': data.get('description')
+        }
+        insert_sensor(sensor)
+        return jsonify({'message': 'Sensor created successfully'}), 201
     except Exception as e:
-        return jsonify({'error': f'Failed to create sensor: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/sensors', methods=['GET'])
-def get_all_sensors():
-    try:
-        sensors = get_sensors()
-        return jsonify(sensors), 200
-    except Exception as e:
-        return jsonify({'error': f'Failed to fetch sensors: {str(e)}'}), 500
+def get_sensors():
+    sensors = get_all_sensors()
+    return jsonify(sensors), 200
 
-@app.route('/train', methods=['POST'])
-def retrain_model():
-    global model
-    model = train_model()
-    return jsonify({'status': 'model retrained'})
+@app.route('/data', methods=['POST'])
+def submit_data():
+    auth_token = request.headers.get('Authorization')
+    if not auth_token:
+        return jsonify({'error': 'Authorization token missing'}), 401
 
-@app.route('/sensors/<identifier>', methods=['GET'])
-def get_sensor_data(identifier):
-    sensor = get_sensor(identifier)
+    data = request.get_json()
+    identifier = data.get('identifier')
+    attributes = data.get('attributes')
+
+    sensors = get_all_sensors()
+    sensor = next((s for s in sensors if s['identifier'] == identifier and s['access_token'] == auth_token), None)
+
     if not sensor:
-        return jsonify({'error': 'Sensor not found'}), 404
-    
-    readings = get_readings(identifier)
-    sensor['readings'] = [
-        {
-            'id': reading[0],
-            'identifier': reading[1],
-            'attributes': reading[2],
-            'timestamp': reading[3]
-        } for reading in readings
-    ]
-    
-    return jsonify(sensor)
+        return jsonify({'error': 'Invalid sensor or token'}), 401
+
+    try:
+        reading_id = insert_reading(identifier, attributes)
+        socketio.emit('new_reading', {
+            'identifier': identifier,
+            'attributes': attributes,
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+        return jsonify({'message': 'Data submitted successfully', 'reading_id': reading_id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/readings/<identifier>', methods=['GET'])
-def get_readings_for_identifier(identifier):
-    try:
-        readings = get_readings_by_identifier(identifier)
-        return jsonify(readings), 200
-    except Exception as e:
-        return jsonify({'error': f'Failed to fetch readings: {str(e)}'}), 500
+def get_sensor_readings(identifier):
+    readings = get_readings(identifier)
+    return jsonify(readings), 200
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
-    # 
+    socketio.run(app, debug=True, port=5000)
