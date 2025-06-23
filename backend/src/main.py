@@ -1,15 +1,31 @@
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 from flask_cors import CORS
-from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings
+from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings, get_sensor_by_identifier
 import json
 import datetime
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173")
 
 init_db()
+
+def check_condition(attr_value, condition, notif):
+    try:
+        if condition == "range" and isinstance(attr_value, (int, float)):
+            return float(attr_value) >= float(notif['min']) and float(attr_value) <= float(notif['max'])
+        elif condition == "greater_than":
+            return float(attr_value) > float(notif['value'])
+        elif condition == "less_than":
+            return float(attr_value) < float(notif['value'])
+        elif condition == "equal_to":
+            if isinstance(attr_value, (bool)):
+                return str(attr_value).lower() == str(notif['value']).lower()
+            return float(attr_value) == float(notif['value'])
+    except (ValueError, TypeError):
+        return False
+    return False
 
 @app.route('/sensors', methods=['POST'])
 def create_sensor():
@@ -43,13 +59,30 @@ def submit_data():
     identifier = data.get('identifier')
     attributes = data.get('attributes')
 
-    sensors = get_all_sensors()
-    sensor = next((s for s in sensors if s['identifier'] == identifier and s['access_token'] == auth_token), None)
-
-    if not sensor:
+    sensor = get_sensor_by_identifier(identifier)
+    if not sensor or sensor['access_token'] != auth_token:
         return jsonify({'error': 'Invalid sensor or token'}), 401
 
     try:
+        for attr_name, attr_value in attributes.items():
+            attr_meta = next((attr for attr in sensor['attributes_metadata'] if attr['name'] == attr_name), None)
+            if attr_meta and 'notifications' in attr_meta:
+                for notif in attr_meta['notifications']:
+                    condition = notif.get('condition')
+                    if condition != 'none':
+                        if check_condition(attr_value, condition, notif):
+                            alert_message = {
+                                'sensor_id': identifier,
+                                'attribute': attr_name,
+                                'value': attr_value,
+                                'condition': condition,
+                                'threshold': notif.get('value', f"{notif.get('min', '')}-{notif.get('max', '')}"),
+                                'alarm_type': notif.get('alarm_type'),
+                                'message': notif.get('message'),
+                                'timestamp': datetime.datetime.now().isoformat()
+                            }
+                            socketio.emit('alert', alert_message)
+
         reading_id = insert_reading(identifier, attributes)
         socketio.emit('new_reading', {
             'identifier': identifier,

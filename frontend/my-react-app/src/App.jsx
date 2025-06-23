@@ -4,13 +4,14 @@ import SensorForm from './components/SensorForm';
 import SubmitReadingForm from './components/SubmitReadingForm';
 import ViewReadings from './components/ViewReadings';
 import './index.css';
+import { Toaster } from './components/ui/toaster';
 
 function App() {
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-gray-800 text-white shadow-lg fixed w-full top-0 z-10">
+      <nav className="bg-gray-800 text-white shadow-lg fixed w-full top-0 z-10 h-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
+          <div className="flex justify-between h-full">
             <div className="flex items-center">
               <span className="text-xl font-semibold">Monitor IoT</span>
             </div>
@@ -34,7 +35,10 @@ function App() {
           </div>
         </div>
       </nav>
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-20">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-24 min-h-[calc(100vh-6rem)]">
+        <div className="fixed top-24 right-4 z-50">
+          <Toaster />
+        </div>
         <Routes>
           <Route path="/sensors" element={<SensorForm />} />
           <Route path="/submit-reading" element={<SubmitReadingForm />} />
@@ -47,5 +51,3 @@ function App() {
 }
 
 export default App;
-
-//
