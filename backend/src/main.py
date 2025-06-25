@@ -1,9 +1,14 @@
-from flask import Flask, request, jsonify
+import logging
+from flask import Flask, request, jsonify, make_response
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings, get_sensor_by_identifier
 import json
 import datetime
+import csv
+from io import StringIO
+
+logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
@@ -97,6 +102,57 @@ def submit_data():
 def get_sensor_readings(identifier):
     readings = get_readings(identifier)
     return jsonify(readings), 200
+
+@app.route('/readings/csv/<identifier>', methods=['GET'])
+def export_readings_csv(identifier):
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+    
+    sensor = get_sensor_by_identifier(identifier)
+    if not sensor:
+        return jsonify({"error": "Sensor not found"}), 404
+    
+    try:
+        logging.debug(f"Exporting CSV for {identifier} with start_time={start_time}, end_time={end_time}")
+        readings = get_readings(identifier, start_time, end_time)
+        logging.debug(f"Raw readings for {identifier}: {readings}")
+        
+        if not readings or not isinstance(readings, (list, tuple)):
+            raise ValueError("Readings data is empty or not a list/tuple")
+        
+        si = StringIO()
+        writer = csv.writer(si)
+
+        headers = ['timestamp'] + [attr['name'] for attr in sensor['attributes_metadata']]
+        writer.writerow(headers)
+        
+        for reading in readings:
+            if not isinstance(reading, dict):
+                raise ValueError(f"Reading entry is not a dict: {reading}")
+            timestamp = reading.get('timestamp', '')
+            attributes = reading.get('attributes', {})
+            if not isinstance(attributes, dict):
+                raise ValueError(f"Attributes is not a dict: {attributes}")
+            row = [timestamp]
+            for attr in sensor['attributes_metadata']:
+                value = attributes.get(attr['name'], '')
+                row.append(value)
+            writer.writerow(row)
+        
+        output = si.getvalue()
+        si.close()
+        
+        response = make_response(output)
+        response.headers['Content-Disposition'] = f'attachment; filename={identifier}_readings.csv'
+        response.headers['Content-type'] = 'text/csv'
+        response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
+        return response
+    except ValueError as ve:
+        logging.error(f"Validation error in CSV generation for {identifier}: {str(ve)}")
+        return jsonify({"error": "Invalid data format in readings"}), 500
+    except Exception as e:
+        logging.error(f"Error generating CSV for {identifier}: {str(e)}")
+        return jsonify({"error": "Internal server error while generating CSV"}), 500
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, port=5000)

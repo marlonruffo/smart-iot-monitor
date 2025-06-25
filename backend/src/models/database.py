@@ -95,10 +95,21 @@ def insert_reading(sensor_id, attributes):
     conn.close()
     return reading_id
 
-def get_readings(sensor_id):
+def get_readings(sensor_id, start_time=None, end_time=None):
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute('SELECT id, sensor_id, attributes, timestamp FROM readings WHERE sensor_id = ? ORDER BY timestamp DESC', (sensor_id,))
+    query = "SELECT id, sensor_id, attributes, timestamp FROM readings WHERE sensor_id = ? ORDER BY timestamp DESC"
+    params = [sensor_id]
+    if start_time and end_time:
+        query += " AND timestamp BETWEEN ? AND ?"
+        params.extend([start_time, end_time])
+    elif start_time:
+        query += " AND timestamp >= ?"
+        params.append(start_time)
+    elif end_time:
+        query += " AND timestamp <= ?"
+        params.append(end_time)
+    c.execute(query, params)
     rows = c.fetchall()
     conn.close()
     readings = []
@@ -111,3 +122,4 @@ def get_readings(sensor_id):
         }
         readings.append(reading)
     return readings
+

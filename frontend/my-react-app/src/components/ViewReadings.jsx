@@ -6,9 +6,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from '@/components/ui/use-toast';
 import { Line, Bar, Scatter } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  TimeScale,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import 'chartjs-adapter-date-fns';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { FileSpreadsheet } from 'lucide-react';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, TimeScale);
 
 const socket = io('http://localhost:5000');
 
@@ -17,9 +32,11 @@ function ViewReadings() {
   const [selectedSensor, setSelectedSensor] = useState('');
   const [readings, setReadings] = useState([]);
   const [chartType, setChartType] = useState('line');
+  const [timeRange, setTimeRange] = useState('last-hour');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   useEffect(() => {
-    // Fetch sensors
     const fetchSensors = async () => {
       try {
         const response = await axios.get('http://localhost:5000/sensors');
@@ -54,14 +71,109 @@ function ViewReadings() {
   const handleSensorChange = async (value) => {
     setSelectedSensor(value);
     if (value) {
-      try {
-        const response = await axios.get(`http://localhost:5000/readings/${value}`);
-        setReadings(response.data);
-      } catch (err) {
-        console.error('Error fetching readings:', err);
-      }
+      await fetchReadings(value, timeRange, customStart, customEnd);
     } else {
       setReadings([]);
+    }
+  };
+
+  const fetchReadings = async (identifier, range, start = '', end = '') => {
+    try {
+      const params = {};
+      if (range === 'custom' && start && end) {
+        params.start_time = start;
+        params.end_time = end;
+      } else if (range !== 'all') {
+        const now = new Date();
+        let startTime;
+        switch (range) {
+          case 'last-hour':
+            startTime = new Date(now - 1 * 60 * 60 * 1000).toISOString();
+            break;
+          case 'last-day':
+            startTime = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+            break;
+          case 'last-week':
+            startTime = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+            break;
+          default:
+            startTime = '';
+        }
+        params.start_time = startTime;
+      }
+      const response = await axios.get(`http://localhost:5000/readings/${identifier}`, { params });
+      setReadings(response.data);
+    } catch (err) {
+      console.error('Error fetching readings:', err);
+    }
+  };
+
+  const handleTimeRangeChange = (value) => {
+    setTimeRange(value);
+    if (selectedSensor) {
+      fetchReadings(selectedSensor, value, customStart, customEnd);
+    }
+  };
+
+  const handleCustomRangeSubmit = (e) => {
+    e.preventDefault();
+    if (selectedSensor) {
+      fetchReadings(selectedSensor, 'custom', customStart, customEnd);
+    }
+  };
+
+  const downloadCSV = async () => {
+    if (!selectedSensor) return;
+
+    try {
+      const params = {};
+      if (timeRange === 'custom' && customStart && customEnd) {
+        params.start_time = customStart;
+        params.end_time = customEnd;
+      } else if (timeRange !== 'all') {
+        const now = new Date();
+        let startTime;
+        switch (timeRange) {
+          case 'last-hour':
+            startTime = new Date(now - 1 * 60 * 60 * 1000).toISOString();
+            break;
+          case 'last-day':
+            startTime = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+            break;
+          case 'last-week':
+            startTime = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+            break;
+          default:
+            startTime = '';
+        }
+        params.start_time = startTime;
+      }
+      const response = await axios.get(`http://localhost:5000/readings/csv/${selectedSensor}`, {
+        params,
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${selectedSensor}_readings.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast({
+        title: 'Sucesso',
+        description: 'Arquivo CSV baixado com sucesso!',
+        variant: 'default',
+        duration: 3000,
+      });
+    } catch (err) {
+      console.error('Error downloading CSV:', err);
+      toast({
+        title: 'Erro',
+        description: 'Falha ao baixar o arquivo CSV.',
+        variant: 'destructive',
+        duration: 5000,
+      });
     }
   };
 
@@ -72,10 +184,14 @@ function ViewReadings() {
     if (!sensor) return null;
 
     const numericAttributes = sensor.attributes_metadata.filter((attr) => attr.type === 'number').map((attr) => attr.name);
-    const labels = readings.map((r) => new Date(r.timestamp).toLocaleTimeString());
     const datasets = numericAttributes.map((attr, index) => ({
       label: `${attr} (${sensor.attributes_metadata.find((a) => a.name === attr).unit})`,
-      data: readings.map((r) => r.attributes[attr] ?? null),
+      data: chartType === 'scatter'
+        ? readings.map((r) => ({
+            x: new Date(r.timestamp).getTime(),
+            y: r.attributes[attr] ?? null,
+          }))
+        : readings.map((r) => r.attributes[attr] ?? null),
       borderColor: `hsl(${index * 60}, 70%, 50%)`,
       backgroundColor: `hsl(${index * 60}, 70%, 50%, 0.5)`,
       fill: chartType === 'line',
@@ -84,8 +200,10 @@ function ViewReadings() {
     }));
 
     return {
-      labels,
       datasets,
+      labels: chartType === 'scatter'
+        ? undefined
+        : readings.map((r) => new Date(r.timestamp).toLocaleTimeString()),
     };
   };
 
@@ -96,7 +214,19 @@ function ViewReadings() {
       title: { display: true, text: 'Leituras do Sensor' },
     },
     scales: {
-      y: { beginAtZero: true },
+      x: chartType === 'scatter'
+        ? {
+            type: 'time',
+            time: {
+              unit: 'minute',
+            },
+            title: { display: true, text: 'Tempo' },
+          }
+        : {},
+      y: {
+        beginAtZero: true,
+        title: { display: true, text: 'Valor' },
+      },
     },
   };
 
@@ -138,6 +268,62 @@ function ViewReadings() {
           </Select>
         </div>
         <div className="mb-4 grid grid-cols-3 gap-x-4 items-center">
+          <label htmlFor="time-range" className="text-right font-medium">Intervalo de Tempo</label>
+          <Select value={timeRange} onValueChange={handleTimeRangeChange} className="col-span-2">
+            <SelectTrigger id="time-range">
+              <SelectValue placeholder="Selecione o intervalo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="last-hour">Última hora</SelectItem>
+              <SelectItem value="last-day">Último dia</SelectItem>
+              <SelectItem value="last-week">Última semana</SelectItem>
+              <SelectItem value="custom">Personalizado</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {timeRange === 'custom' && (
+          <form onSubmit={handleCustomRangeSubmit} className="mb-4 grid grid-cols-3 gap-x-4 items-end">
+          <div>
+            <label className="block text-sm font-medium mb-1">Data Inicial</label>
+            <Input
+              type="datetime-local"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Data Final</label>
+            <Input
+              type="datetime-local"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1 invisible">Aplicar</label>
+            <Button
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Aplicar
+            </Button>
+          </div>
+        </form>
+        )}
+
+<div className="mb-4 flex justify-end">
+  <Button
+    onClick={downloadCSV}
+    disabled={!selectedSensor}
+    className="bg-green-600 hover:bg-green-700 text-white gap-2"
+  >
+    <FileSpreadsheet className="w-4 h-4" /> Baixar CSV
+  </Button>
+</div>
+
+        <div className="mb-4 grid grid-cols-3 gap-x-4 items-center">
           <label htmlFor="chart-type" className="text-right font-medium">Tipo de Gráfico</label>
           <Select value={chartType} onValueChange={setChartType} className="col-span-2">
             <SelectTrigger id="chart-type">
@@ -150,32 +336,34 @@ function ViewReadings() {
             </SelectContent>
           </Select>
         </div>
+
         {readings.length > 0 && (
           <div className="mb-8">
             <div className="h-96">{renderChart()}</div>
           </div>
         )}
+
         {readings.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Timestamp</TableHead>
-                {sensors
-                  .find((s) => s.identifier === selectedSensor)
-                  ?.attributes_metadata.map((attr) => (
-                    <TableHead key={attr.name}>{attr.name} ({attr.unit})</TableHead>
-                  ))}
+                {sensors.find((s) => s.identifier === selectedSensor)?.attributes_metadata.map((attr) => (
+                  <TableHead key={attr.name}>{attr.name} ({attr.unit})</TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {readings.map((reading, index) => (
                 <TableRow key={index}>
                   <TableCell>{new Date(reading.timestamp).toLocaleString()}</TableCell>
-                  {sensors
-                    .find((s) => s.identifier === selectedSensor)
-                    ?.attributes_metadata.map((attr) => (
-                      <TableCell key={attr.name}>{reading.attributes[attr.name] ?? '-'}</TableCell>
-                    ))}
+                  {sensors.find((s) => s.identifier === selectedSensor)?.attributes_metadata.map((attr) => (
+                    <TableCell key={attr.name}>
+                      {typeof reading.attributes[attr.name] !== 'undefined'
+                        ? (attr.type === 'boolean' ? String(reading.attributes[attr.name]) : reading.attributes[attr.name])
+                        : '-'}
+                    </TableCell>
+                  ))}
                 </TableRow>
               ))}
             </TableBody>
