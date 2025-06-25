@@ -128,7 +128,7 @@ function ViewReadings() {
             <SelectTrigger id="sensor-select">
               <SelectValue placeholder="Escolha um sensor" />
             </SelectTrigger>
-            <SelectContent className="z-50">
+            <SelectContent>
               {sensors.map((sensor) => (
                 <SelectItem key={sensor.identifier} value={sensor.identifier}>
                   {sensor.name} ({sensor.identifier})
@@ -143,7 +143,7 @@ function ViewReadings() {
             <SelectTrigger id="chart-type">
               <SelectValue placeholder="Selecione o tipo de gráfico" />
             </SelectTrigger>
-            <SelectContent className="z-50">
+            <SelectContent>
               <SelectItem value="line">Linha</SelectItem>
               <SelectItem value="bar">Barra</SelectItem>
               <SelectItem value="scatter">Dispersão</SelectItem>

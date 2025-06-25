@@ -3,7 +3,13 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 
@@ -39,8 +45,8 @@ function SubmitReadingForm() {
     const { name, value } = e.target;
     if (name.includes('attributes.')) {
       const field = name.split('.')[1];
-      const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
-      const attrMetadata = selectedSensor?.attributes_metadata.find(attr => attr.name === field);
+      const selectedSensor = sensors.find((s) => s.identifier === formData.identifier);
+      const attrMetadata = selectedSensor?.attributes_metadata.find((attr) => attr.name === field);
       let parsedValue = value;
       if (attrMetadata?.type === 'number') {
         parsedValue = value ? parseFloat(value) : '';
@@ -57,11 +63,15 @@ function SubmitReadingForm() {
   };
 
   const handleSelectChange = (value) => {
-    const selectedSensor = sensors.find(s => s.identifier === value);
-    const newAttributes = selectedSensor?.attributes_metadata.reduce((acc, attr) => ({
-      ...acc,
-      [attr.name]: attr.type === 'boolean' ? false : ''
-    }), {}) || {};
+    const selectedSensor = sensors.find((s) => s.identifier === value);
+    const newAttributes =
+      selectedSensor?.attributes_metadata.reduce(
+        (acc, attr) => ({
+          ...acc,
+          [attr.name]: attr.type === 'boolean' ? false : '',
+        }),
+        {}
+      ) || {};
     setFormData({
       ...formData,
       identifier: value,
@@ -71,7 +81,7 @@ function SubmitReadingForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
+    const selectedSensor = sensors.find((s) => s.identifier === formData.identifier);
     const attributes = {};
     for (const attr of selectedSensor?.attributes_metadata || []) {
       const value = formData.attributes[attr.name];
@@ -81,115 +91,149 @@ function SubmitReadingForm() {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/data', {
-        identifier: formData.identifier,
-        attributes,
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': formData.access_token,
+      await axios.post(
+        'http://localhost:5000/data',
+        {
+          identifier: formData.identifier,
+          attributes,
         },
-      });
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: formData.access_token,
+          },
+        }
+      );
       setSuccess('Leitura enviada com sucesso!');
       setError('');
       setFormData({
         ...formData,
-        attributes: selectedSensor?.attributes_metadata.reduce((acc, attr) => ({
-          ...acc,
-          [attr.name]: attr.type === 'boolean' ? false : ''
-        }), {}) || {},
+        attributes:
+          selectedSensor?.attributes_metadata.reduce(
+            (acc, attr) => ({
+              ...acc,
+              [attr.name]: attr.type === 'boolean' ? false : '',
+            }),
+            {}
+          ) || {},
       });
     } catch (err) {
       console.error('Error submitting reading:', err);
-      const errorMessage = err.response?.data?.error || err.message || 'Erro ao conectar com o servidor';
+      const errorMessage =
+        err.response?.data?.error || err.message || 'Erro ao conectar com o servidor';
       setError(`Erro: ${errorMessage}`);
       setSuccess('');
     }
   };
 
-  const selectedSensor = sensors.find(s => s.identifier === formData.identifier);
+  const selectedSensor = sensors.find((s) => s.identifier === formData.identifier);
 
   return (
-    <Card className="card">
+    <Card className="max-w-3xl mx-auto p-6 shadow-md rounded-2xl bg-white">
       <CardHeader>
-        <CardTitle>Enviar Leitura</CardTitle>
+        <CardTitle className="text-center text-3xl font-semibold text-gray-800">
+          Enviar Leitura
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="form space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="identifier">Sensor</Label>
-            <Select
-              name="identifier"
-              value={formData.identifier}
-              onValueChange={handleSelectChange}
-              required
-              disabled={sensors.length === 0}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um sensor" />
-              </SelectTrigger>
-              <SelectContent>
-                {sensors.length === 0 ? (
-                  <div className="px-4 py-2 text-sm text-muted-foreground">
-                    Nenhum sensor disponível
-                  </div>
-                ) : (
-                  sensors.map((sensor) => (
-                    <SelectItem key={sensor.identifier} value={sensor.identifier}>
-                      {sensor.name} ({sensor.identifier})
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="access_token">Token de Acesso</Label>
-            <Input
-              id="access_token"
-              name="access_token"
-              value={formData.access_token}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          {selectedSensor?.attributes_metadata.map(attr => (
-            <div key={attr.name} className="space-y-2">
-              <Label htmlFor={attr.name}>{attr.name} ({attr.unit || attr.type})</Label>
-              {attr.type === 'boolean' ? (
-                <Select
-                  name={`attributes.${attr.name}`}
-                  value={String(formData.attributes[attr.name])}
-                  onValueChange={(value) => handleChange({ target: { name: `attributes.${attr.name}`, value } })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true">True</SelectItem>
-                    <SelectItem value="false">False</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  id={attr.name}
-                  name={`attributes.${attr.name}`}
-                  type={attr.type === 'number' ? 'number' : 'text'}
-                  step={attr.type === 'number' ? '0.1' : undefined}
-                  value={formData.attributes[attr.name] || ''}
-                  onChange={handleChange}
-                />
-              )}
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Sensor e Token - grid duas colunas em md+ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="identifier">Sensor</Label>
+              <Select
+                name="identifier"
+                value={formData.identifier}
+                onValueChange={handleSelectChange}
+                required
+                disabled={sensors.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um sensor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sensors.length === 0 ? (
+                    <div className="px-4 py-2 text-sm text-muted-foreground">
+                      Nenhum sensor disponível
+                    </div>
+                  ) : (
+                    sensors.map((sensor) => (
+                      <SelectItem key={sensor.identifier} value={sensor.identifier}>
+                        {sensor.name} ({sensor.identifier})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
-          ))}
-          <Button type="submit" disabled={sensors.length === 0 || !formData.identifier}>Enviar Leitura</Button>
+            <div className="space-y-2">
+              <Label htmlFor="access_token">Token de Acesso</Label>
+              <Input
+                id="access_token"
+                name="access_token"
+                value={formData.access_token}
+                onChange={handleChange}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Atributos - lista vertical */}
+          <div className="space-y-6">
+            {selectedSensor?.attributes_metadata.map((attr) => (
+              <div key={attr.name} className="space-y-2">
+                <Label htmlFor={attr.name}>
+                  {attr.name} {attr.unit ? `(${attr.unit})` : `(${attr.type})`}
+                </Label>
+                {attr.type === 'boolean' ? (
+                  <Select
+                    name={`attributes.${attr.name}`}
+                    value={String(formData.attributes[attr.name])}
+                    onValueChange={(value) =>
+                      handleChange({ target: { name: `attributes.${attr.name}`, value } })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">True</SelectItem>
+                      <SelectItem value="false">False</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id={attr.name}
+                    name={`attributes.${attr.name}`}
+                    type={attr.type === 'number' ? 'number' : 'text'}
+                    step={attr.type === 'number' ? '0.1' : undefined}
+                    value={formData.attributes[attr.name] || ''}
+                    onChange={handleChange}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Botão Enviar */}
+          <div className="pt-4">
+            <Button
+              type="submit"
+              disabled={sensors.length === 0 || !formData.identifier}
+              className="w-full h-12 text-lg bg-blue-600 hover:bg-blue-700 text-white transition"
+            >
+              Enviar Leitura
+            </Button>
+          </div>
+
+          {/* Mensagens de erro e sucesso */}
           {error && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="mt-4">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
           {success && (
-            <Alert>
+            <Alert className="mt-4">
               <AlertDescription>{success}</AlertDescription>
             </Alert>
           )}
@@ -200,4 +244,3 @@ function SubmitReadingForm() {
 }
 
 export default SubmitReadingForm;
-//
