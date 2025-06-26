@@ -5,6 +5,7 @@ import SubmitReadingForm from './components/SubmitReadingForm';
 import ViewReadings from './components/ViewReadings';
 import './index.css';
 import { Toaster } from './components/ui/toaster';
+import LandingPage from './components/LandingPage';
 
 function App() {
   return (
@@ -42,7 +43,7 @@ function App() {
           <Route path="/sensors" element={<SensorForm />} />
           <Route path="/submit-reading" element={<SubmitReadingForm />} />
           <Route path="/view-readings" element={<ViewReadings />} />
-          <Route path="/" element={<div className="text-center mt-10"><h1 className="text-3xl font-bold">Bem-vindo ao Monitor IoT</h1><p className="mt-2 text-gray-600">Selecione uma opção no menu acima.</p></div>} />
+          <Route path="/" element={<LandingPage />} />
         </Routes>
       </div>
     </div>
