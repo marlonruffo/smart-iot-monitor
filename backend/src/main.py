@@ -2,16 +2,15 @@ import logging
 from flask import Flask, request, jsonify, make_response
 from flask_socketio import SocketIO
 from flask_cors import CORS
-from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings, get_sensor_by_identifier
+from models.database import init_db, insert_sensor, get_all_sensors, insert_reading, get_readings, get_sensor_by_identifier, get_notifications, insert_notification
 import json
 import datetime
 import csv
 from io import StringIO
-
 logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
+CORS(app, resources={r"/readings/*": {"origins": "http://localhost:5173"}, r"/*": {"origins": "http://localhost:5173"}})
 socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173")
 
 init_db()
@@ -76,6 +75,10 @@ def submit_data():
                     condition = notif.get('condition')
                     if condition != 'none':
                         if check_condition(attr_value, condition, notif):
+                            insert_notification(
+                                identifier, attr_name, attr_value, condition,
+                                notif.get('value', f"{notif.get('min', '')}-{notif.get('max', '')}"), notif.get('alarm_type'), notif.get('message')
+                            )
                             alert_message = {
                                 'sensor_id': identifier,
                                 'attribute': attr_name,
@@ -153,6 +156,11 @@ def export_readings_csv(identifier):
     except Exception as e:
         logging.error(f"Error generating CSV for {identifier}: {str(e)}")
         return jsonify({"error": "Internal server error while generating CSV"}), 500
+
+@app.route('/notifications/<sensor_id>', methods=['GET'])
+def get_sensor_notifications(sensor_id):
+    notifications = get_notifications(sensor_id)
+    return jsonify(notifications), 200
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, port=5000)

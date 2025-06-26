@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import datetime
+import logging
 
 DATABASE = 'iot.db'
 
@@ -22,6 +23,20 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id TEXT NOT NULL,
             attributes TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (sensor_id) REFERENCES sensors (identifier)
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id TEXT NOT NULL,
+            attribute TEXT NOT NULL,
+            value TEXT NOT NULL,
+            condition TEXT NOT NULL,
+            threshold TEXT NOT NULL,
+            alarm_type TEXT NOT NULL,
+            message TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             FOREIGN KEY (sensor_id) REFERENCES sensors (identifier)
         )
@@ -98,17 +113,24 @@ def insert_reading(sensor_id, attributes):
 def get_readings(sensor_id, start_time=None, end_time=None):
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    query = "SELECT id, sensor_id, attributes, timestamp FROM readings WHERE sensor_id = ? ORDER BY timestamp DESC"
+    query = "SELECT id, sensor_id, attributes, timestamp FROM readings WHERE sensor_id = ?"
     params = [sensor_id]
-    if start_time and end_time:
-        query += " AND timestamp BETWEEN ? AND ?"
-        params.extend([start_time, end_time])
-    elif start_time:
-        query += " AND timestamp >= ?"
+    
+    conditions = []
+    if start_time is not None:
+        conditions.append("timestamp >= ?")
         params.append(start_time)
-    elif end_time:
-        query += " AND timestamp <= ?"
+    if end_time is not None:
+        conditions.append("timestamp <= ?")
         params.append(end_time)
+    
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+    else:
+        query += " "
+    
+    query += " ORDER BY timestamp DESC"
+    logging.debug(f"Final query: {query} with params: {params}")
     c.execute(query, params)
     rows = c.fetchall()
     conn.close()
@@ -123,3 +145,38 @@ def get_readings(sensor_id, start_time=None, end_time=None):
         readings.append(reading)
     return readings
 
+def get_notifications(sensor_id):
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, sensor_id, attribute, value, condition, threshold, alarm_type, message, timestamp 
+        FROM notifications WHERE sensor_id = ? ORDER BY timestamp DESC
+    ''', (sensor_id,))
+    rows = c.fetchall()
+    conn.close()
+    notifications = []
+    for row in rows:
+        notification = {
+            'id': row[0],
+            'sensor_id': row[1],
+            'attribute': row[2],
+            'value': row[3],
+            'condition': row[4],
+            'threshold': row[5],
+            'alarm_type': row[6],
+            'message': row[7],
+            'timestamp': row[8]
+        }
+        notifications.append(notification)
+    return notifications
+
+def insert_notification(sensor_id, attribute, value, condition, threshold, alarm_type, message):
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    timestamp = datetime.datetime.now().isoformat()
+    c.execute('''
+        INSERT INTO notifications (sensor_id, attribute, value, condition, threshold, alarm_type, message, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (sensor_id, attribute, str(value), condition, threshold, alarm_type, message, timestamp))
+    conn.commit()
+    conn.close()
