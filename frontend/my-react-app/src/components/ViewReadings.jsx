@@ -10,6 +10,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FileSpreadsheet, FileText, Bell } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend);
 
@@ -28,6 +29,13 @@ function ViewReadings() {
   const [showReadings, setShowReadings] = useState(false);
   const [readingPage, setReadingPage] = useState(1);
   const [notificationPage, setNotificationPage] = useState(1);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [selectedAttribute, setSelectedAttribute] = useState('');
+  const [notificationType, setNotificationType] = useState('urgent');
+  const [condition, setCondition] = useState('greater_than');
+  const [threshold, setThreshold] = useState('');
+  const [message, setMessage] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
 
   useEffect(() => {
     const fetchSensors = async () => {
@@ -245,12 +253,125 @@ function ViewReadings() {
     }
   };
 
-
   const itemsPerPage = 10;
   const paginatedReadings = readings.slice((readingPage - 1) * itemsPerPage, readingPage * itemsPerPage);
   const totalReadingPages = Math.ceil(readings.length / itemsPerPage);
   const paginatedNotifications = notifications.slice((notificationPage - 1) * itemsPerPage, notificationPage * itemsPerPage);
   const totalNotificationPages = Math.ceil(notifications.length / itemsPerPage);
+
+  const handleSaveNotification = async () => {
+    if (!selectedSensor || !selectedAttribute || !condition || !threshold) {
+      toast({
+        title: 'Erro',
+        description: 'Preencha todos os campos obrigatórios.',
+        variant: 'destructive',
+        duration: 5000,
+      });
+      return;
+    }
+
+    const sensor = sensors.find((s) => s.identifier === selectedSensor);
+    if (!sensor) return;
+
+    const attributeMeta = sensor.attributes_metadata.find((attr) => attr.name === selectedAttribute);
+    let updatedNotifications = attributeMeta ? [...attributeMeta.notifications] : [];
+
+    if (editingIndex !== null) {
+      // Edit existing notification
+      updatedNotifications[editingIndex] = {
+        condition,
+        value: condition === 'range' ? '' : threshold,
+        min: condition === 'range' ? threshold.split('-')[0] : '',
+        max: condition === 'range' ? threshold.split('-')[1] : '',
+        alarm_type: notificationType,
+        message: message || `Alerta ${notificationType} para ${selectedAttribute}`,
+      };
+    } else {
+      // Add new notification
+      updatedNotifications.push({
+        condition,
+        value: condition === 'range' ? '' : threshold,
+        min: condition === 'range' ? threshold.split('-')[0] : '',
+        max: condition === 'range' ? threshold.split('-')[1] : '',
+        alarm_type: notificationType,
+        message: message || `Alerta ${notificationType} para ${selectedAttribute}`,
+      });
+    }
+
+    const updatedSensor = {
+      ...sensor,
+      attributes_metadata: sensor.attributes_metadata.map((attr) =>
+        attr.name === selectedAttribute ? { ...attr, notifications: updatedNotifications } : attr
+      ),
+    };
+
+    try {
+      await axios.put(`http://localhost:5000/sensors/${selectedSensor}`, updatedSensor);
+      toast({
+        title: 'Sucesso',
+        description: editingIndex !== null ? 'Notificação atualizada!' : 'Notificação adicionada!',
+        variant: 'default',
+        duration: 3000,
+      });
+      setShowNotificationModal(false);
+      // Refresh sensors list
+      const response = await axios.get('http://localhost:5000/sensors');
+      setSensors(response.data);
+    } catch (err) {
+      console.error('Error updating sensor:', err);
+      toast({
+        title: 'Erro',
+        description: 'Falha ao atualizar a notificação.',
+        variant: 'destructive',
+        duration: 5000,
+      });
+    }
+  };
+
+  const handleEditNotification = (index, attr) => {
+    const sensor = sensors.find((s) => s.identifier === selectedSensor);
+    const notification = sensor.attributes_metadata.find((a) => a.name === attr).notifications[index];
+    setSelectedAttribute(attr);
+    setNotificationType(notification.alarm_type);
+    setCondition(notification.condition);
+    setThreshold(notification.condition === 'range' ? `${notification.min}-${notification.max}` : notification.value);
+    setMessage(notification.message);
+    setEditingIndex(index);
+    setShowNotificationModal(true);
+  };
+
+  const handleRemoveNotification = async (attr, index) => {
+    const sensor = sensors.find((s) => s.identifier === selectedSensor);
+    const updatedNotifications = sensor.attributes_metadata.find((a) => a.name === attr).notifications.filter((_, i) => i !== index);
+
+    const updatedSensor = {
+      ...sensor,
+      attributes_metadata: sensor.attributes_metadata.map((attrMeta) =>
+        attrMeta.name === attr ? { ...attrMeta, notifications: updatedNotifications } : attrMeta
+      ),
+    };
+
+    try {
+      await axios.put(`http://localhost:5000/sensors/${selectedSensor}`, updatedSensor);
+      toast({
+        title: 'Sucesso',
+        description: 'Notificação removida!',
+        variant: 'default',
+        duration: 3000,
+      });
+      // Refresh sensors list
+      const response = await axios.get('http://localhost:5000/sensors');
+      setSensors(response.data);
+    } catch (err) {
+      console.error('Error removing notification:', err);
+      toast({
+        title: 'Erro',
+        description: 'Falha ao remover a notificação.',
+        variant: 'destructive',
+        duration: 5000,
+      });
+    }
+  };
 
   return (
     <Card className="max-w-4xl mx-auto">
@@ -299,7 +420,7 @@ function ViewReadings() {
               <Input type="datetime-local" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
             </div>
             <div className="col-span-1">
-            <label className="block text-sm font-medium mb-1"> </label>
+              <label className="block text-sm font-medium mb-1"> </label>
               <Button type="submit" className="w-full">Aplicar</Button>
             </div>
           </form>
@@ -331,6 +452,9 @@ function ViewReadings() {
               </Button>
               <Button onClick={downloadCSV} disabled={!selectedSensor} className="bg-green-600 hover:bg-green-700 text-white gap-2">
                 <FileSpreadsheet className="w-4 h-4" /> Baixar CSV
+              </Button>
+              <Button onClick={() => setShowNotificationModal(true)} disabled={!selectedSensor} className="bg-purple-600 hover:bg-purple-700 text-white gap-2">
+                <Bell className="w-4 h-4" /> Gerenciar Notificações
               </Button>
             </div>
           </div>
@@ -405,26 +529,31 @@ function ViewReadings() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedNotifications.map((notification, index) => (
-                      <TableRow
-                        key={index}
-                        className={
-                          notification.alarm_type === 'urgent'
-                            ? 'bg-destructive text-destructive-foreground'
-                            : notification.alarm_type === 'attention'
-                            ? 'bg-yellow-300 text-yellow-900'
-                            : 'bg-muted text-muted-foreground'
-                        }
-                      >
-                        <TableCell>{new Date(notification.timestamp).toLocaleString()}</TableCell>
-                        <TableCell>{notification.attribute}</TableCell>
-                        <TableCell>{notification.value}</TableCell>
-                        <TableCell>{notification.condition}</TableCell>
-                        <TableCell>{notification.threshold}</TableCell>
-                        <TableCell>{notification.alarm_type}</TableCell>
-                        <TableCell>{notification.message}</TableCell>
-                      </TableRow>
-                    ))}
+                    {paginatedNotifications.map((notification, index) => {
+                      const attr = sensors.find((s) => s.identifier === selectedSensor)?.attributes_metadata.find((a) => a.name === notification.attribute);
+                      const notifIndex = attr?.notifications.findIndex((n) => n.condition === notification.condition && n.value === notification.threshold || (n.min === notification.threshold.split('-')[0] && n.max === notification.threshold.split('-')[1]));
+                      return (
+                        <TableRow
+                          key={index}
+                          className={
+                            notification.alarm_type === 'urgent'
+                              ? 'bg-destructive text-destructive-foreground'
+                              : notification.alarm_type === 'attention'
+                              ? 'bg-yellow-300 text-yellow-900'
+                              : 'bg-muted text-muted-foreground'
+                          }
+                        >
+                          <TableCell>{new Date(notification.timestamp).toLocaleString()}</TableCell>
+                          <TableCell>{notification.attribute}</TableCell>
+                          <TableCell>{notification.value}</TableCell>
+                          <TableCell>{notification.condition}</TableCell>
+                          <TableCell>{notification.threshold}</TableCell>
+                          <TableCell>{notification.alarm_type}</TableCell>
+                          <TableCell>{notification.message}</TableCell>
+                          
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 {totalNotificationPages > 1 && (
@@ -453,6 +582,80 @@ function ViewReadings() {
         {showNotifications && notifications.length === 0 && (
           <p className="text-center mt-4">Nenhuma notificação disponível.</p>
         )}
+        <Dialog open={showNotificationModal} onOpenChange={setShowNotificationModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingIndex !== null ? 'Editar Notificação' : 'Adicionar Notificação'}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="attribute-select" className="text-right">Atributo</label>
+                <Select value={selectedAttribute} onValueChange={setSelectedAttribute} className="col-span-3">
+                  <SelectTrigger id="attribute-select">
+                    <SelectValue placeholder="Selecione um atributo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sensors.find((s) => s.identifier === selectedSensor)?.attributes_metadata.map((attr) => (
+                      <SelectItem key={attr.name} value={attr.name}>
+                        {attr.name} ({attr.unit})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="type-select" className="text-right">Tipo</label>
+                <Select value={notificationType} onValueChange={setNotificationType} className="col-span-3">
+                  <SelectTrigger id="type-select">
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="urgent">Urgente</SelectItem>
+                    <SelectItem value="attention">Atenção</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="condition-select" className="text-right">Condição</label>
+                <Select value={condition} onValueChange={setCondition} className="col-span-3">
+                  <SelectTrigger id="condition-select">
+                    <SelectValue placeholder="Selecione a condição" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="greater_than">Maior que</SelectItem>
+                    <SelectItem value="less_than">Menor que</SelectItem>
+                    <SelectItem value="range">Intervalo</SelectItem>
+                    <SelectItem value="equal_to">Igual a</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="threshold-input" className="text-right">Limiar</label>
+                <Input
+                  id="threshold-input"
+                  value={threshold}
+                  onChange={(e) => setThreshold(e.target.value)}
+                  placeholder={condition === 'range' ? 'min-max (ex: 10-20)' : 'Valor (ex: 50)'}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="message-input" className="text-right">Mensagem</label>
+                <Input
+                  id="message-input"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Mensagem opcional"
+                  className="col-span-3"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setShowNotificationModal(false)} variant="outline">Cancelar</Button>
+              <Button onClick={handleSaveNotification}>{editingIndex !== null ? 'Salvar' : 'Adicionar'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

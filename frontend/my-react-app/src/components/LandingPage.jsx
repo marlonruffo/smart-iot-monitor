@@ -37,7 +37,7 @@ export default function LandingPage() {
   }, [isDark]);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-500">
+    <div className="bg-inherit dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-500">
       <div className="flex justify-end p-4 max-w-6xl mx-auto">
         <button
           onClick={() => setIsDark(!isDark)}
@@ -79,7 +79,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-
       <section className="mt-20 px-6 max-w-6xl mx-auto">
         <h2 className="text-3xl font-bold text-center mb-10">Como funciona?</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
@@ -93,7 +92,7 @@ export default function LandingPage() {
         <h2 className="text-2xl font-semibold text-center mb-4">
           Gráficos de Leitura de Sensores
         </h2>
-        <div className="w-full h-64 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4 transition-colors duration-500">
+        <div className="w-full h-64 bg-inherit dark:bg-gray-800 rounded-xl shadow-lg p-4 transition-colors duration-500">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#444' : '#ccc'} />

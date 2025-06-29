@@ -61,6 +61,25 @@ def insert_sensor(sensor):
     conn.commit()
     conn.close()
 
+def update_sensor(identifier, sensor):
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('''
+        UPDATE sensors 
+        SET name = ?, active = ?, access_token = ?, attributes_metadata = ?, description = ?
+        WHERE identifier = ?
+    ''', (
+        sensor['name'],
+        sensor['active'],
+        sensor['access_token'],
+        json.dumps(sensor['attributes_metadata']),
+        sensor.get('description'),
+        identifier
+    ))
+    conn.commit()
+    conn.close()
+    return c.rowcount > 0
+
 def get_all_sensors():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
